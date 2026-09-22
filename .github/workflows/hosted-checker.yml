@@ -1,0 +1,23 @@
+name: Hosted site checker
+
+# Triggers the website's checker. Set the repository variable SITE_URL and the
+# secret CRON_SECRET (same value as on the site); forks without them skip this.
+on:
+  schedule:
+    - cron: '7 * * * *'  # Hourly, off the top of the hour when GitHub's queue is busiest
+  workflow_dispatch:
+
+jobs:
+  trigger:
+    if: vars.SITE_URL != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run check
+        env:
+          SITE_URL: ${{ vars.SITE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl --fail-with-body -sS -X POST \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            --max-time 90 \
+            "${SITE_URL%/}/api/cron/check"
