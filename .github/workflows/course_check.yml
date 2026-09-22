@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: '*/10 * * * *'  # Runs every ten minutes
   workflow_dispatch:  # Allows manual triggering
+    inputs:
+      test_email:
+        description: 'Send a sample alert email instead of checking seats'
+        type: boolean
+        default: false
 
 jobs:
   check-courses:
@@ -38,4 +43,9 @@ jobs:
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-        run: python register.py --fail-on-available
+        run: |
+          if [ "${{ inputs.test_email }}" = "true" ]; then
+            python register.py --test-email
+          else
+            python register.py --fail-on-available
+          fi
