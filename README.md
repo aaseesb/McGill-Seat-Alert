@@ -78,8 +78,9 @@ down, secrets missing), the run fails and GitHub emails you about it instead.
 ## Testing it
 
 In the Actions tab, open **Check Course Availability** → **Run workflow**,
-tick **Send a sample alert (email/push) instead of checking seats**, then run it.
-It sends a sample alert through whichever method `notify` selects. The step
+tick **Send a test alert instead of checking seats**, pick **push**, **email** or
+**both** under **How to alert for this run**, then run it. Leaving it on
+**default** uses your `notify` setting. The dropdown also works for normal checks. The step
 log shows what happened:
 
 - `Email alerts selected but ALERT_EMAIL is not set` or

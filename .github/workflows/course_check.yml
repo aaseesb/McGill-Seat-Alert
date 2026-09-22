@@ -6,9 +6,18 @@ on:
   workflow_dispatch:  # Allows manual triggering
     inputs:
       test_email:
-        description: 'Send a sample alert (email/push) instead of checking seats'
+        description: 'Send a test alert instead of checking seats'
         type: boolean
         default: false
+      notify:
+        description: 'How to alert for this run (default follows config.json / ALERT_METHOD)'
+        type: choice
+        options:
+          - default
+          - push
+          - email
+          - both
+        default: default
 
 jobs:
   check-courses:
@@ -44,9 +53,15 @@ jobs:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           # Optional override of "notify" in config.json: email, push, or both
           ALERT_METHOD: ${{ vars.ALERT_METHOD }}
+          # Dropdown from a manual run; empty on scheduled runs
+          NOTIFY_INPUT: ${{ inputs.notify }}
         run: |
+          args=()
+          if [ -n "$NOTIFY_INPUT" ] && [ "$NOTIFY_INPUT" != "default" ]; then
+            args+=(--notify "$NOTIFY_INPUT")
+          fi
           if [ "${{ inputs.test_email }}" = "true" ]; then
-            python register.py --test-email
+            python register.py --test-email "${args[@]}"
           else
-            python register.py --fail-on-available
+            python register.py --fail-on-available "${args[@]}"
           fi

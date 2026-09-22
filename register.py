@@ -485,7 +485,8 @@ def send_test_email(config_path, notify_flag=None):
         build_push_text(sample),
     )
     if ok:
-        logging.info("Test alert sent — check your inbox (and spam) and/or the ntfy app.")
+        where = [w for w, on in zip(("your inbox (and spam)", "the ntfy app"), notify) if on]
+        logging.info(f"Test alert sent — check {' and '.join(where)}.")
     return 0 if ok else 2
 
 
