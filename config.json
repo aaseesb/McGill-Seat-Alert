@@ -2,5 +2,6 @@
     "courses": [
         { "code": "FACC 300", "crns": ["2678"] }
     ],
-    "term": "202701"
+    "term": "202701",
+    "notify": "both"
 }

@@ -19,6 +19,10 @@ RESEND_API_KEY = os.environ.get('RESEND_API_KEY')
 RESEND_FROM = os.environ.get('RESEND_FROM') or 'Seat Alert <onboarding@resend.dev>'
 # One or more addresses, separated by commas
 EMAILS = [e.strip() for e in (os.environ.get('ALERT_EMAIL') or '').split(',') if e.strip()]
+# Push notifications via ntfy (free, no account): one or more topics, comma-separated
+NTFY_TOPICS = [t.strip() for t in (os.environ.get('NTFY_TOPIC') or '').split(',') if t.strip()]
+NTFY_SERVER = (os.environ.get('NTFY_SERVER') or 'https://ntfy.sh').rstrip('/')
+NTFY_TOKEN = os.environ.get('NTFY_TOKEN')
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -70,6 +74,71 @@ def send_email(recipients, subject, html, text):
         detail = e.response.text if e.response is not None else ''
         logging.error(f"Failed to send email: {e} {detail}")
         return False
+
+
+def send_push(topics, title, message):
+    # ntfy delivers to every phone subscribed to the topic in the ntfy app
+    headers = {
+        "Title": title.encode('utf-8'),
+        "Priority": "high",
+        "Tags": "rotating_light",
+        "Click": "https://horizon.mcgill.ca/pban1/twbkwbis.P_WWWLogin",
+    }
+    if NTFY_TOKEN:
+        headers["Authorization"] = f"Bearer {NTFY_TOKEN}"
+    ok = True
+    for topic in topics:
+        try:
+            response = requests.post(f"{NTFY_SERVER}/{topic}", data=message.encode('utf-8'),
+                                     headers=headers, timeout=30)
+            response.raise_for_status()
+            logging.info(f"Push notification sent to ntfy topic '{topic}'")
+        except requests.exceptions.RequestException as e:
+            detail = e.response.text if e.response is not None else ''
+            logging.error(f"Failed to send push to '{topic}': {e} {detail}")
+            ok = False
+    return ok
+
+
+def build_push_text(available_courses):
+    return "\n".join(
+        f"{code} {section_type} (CRN {crn}): {availability}"
+        for code, sections in available_courses.items()
+        for crn, section_type, availability in sections
+    )
+
+
+NOTIFY_CHOICES = ('email', 'push', 'both')
+
+
+def resolve_notify(cli_value, config):
+    # Precedence: --notify flag, then ALERT_METHOD env var, then "notify" in config.json
+    value = (cli_value or os.environ.get('ALERT_METHOD') or (config or {}).get('notify') or 'both')
+    value = str(value).strip().lower()
+    if value not in NOTIFY_CHOICES:
+        logging.warning(f"Unknown notify option '{value}'; using 'both'.")
+        value = 'both'
+    return value in ('email', 'both'), value in ('push', 'both')
+
+
+def send_alerts(notify, subject, html, text, push_text):
+    use_email, use_push = notify
+    sent_any, ok = False, True
+    if use_email:
+        if EMAILS:
+            ok = send_email(EMAILS, subject, html, text) and ok
+            sent_any = True
+        else:
+            logging.warning("Email alerts selected but ALERT_EMAIL is not set.")
+    if use_push:
+        if NTFY_TOPICS:
+            ok = send_push(NTFY_TOPICS, subject, push_text) and ok
+            sent_any = True
+        else:
+            logging.warning("Push alerts selected but NTFY_TOPIC is not set.")
+    if not sent_any:
+        logging.warning("No alert was sent.")
+    return sent_any and ok
 
 
 def build_url(courses, term, page="results", dropdowns=None):
@@ -330,13 +399,14 @@ def write_github_summary(text):
         logging.warning(f"Could not write job summary: {e}")
 
 
-def perform_web_task(config_path, dry_run=False, fail_on_available=False):
+def perform_web_task(config_path, dry_run=False, fail_on_available=False, notify_flag=None):
     logging.info("Starting web task...")
 
     config = get_config(config_path)
     if not config:
         return 2
 
+    notify = resolve_notify(notify_flag, config)
     courses = normalize_courses(config.get('courses', []))
     term = str(config.get('term', '202701'))
 
@@ -382,13 +452,12 @@ def perform_web_task(config_path, dry_run=False, fail_on_available=False):
             if dry_run:
                 logging.info(f"[dry-run] Subject: {subject}")
                 logging.info(f"[dry-run] Body:\n{text}")
-            elif EMAILS:
-                send_email(EMAILS, subject, body, text)
+                delivered = True
             else:
-                logging.warning("ALERT_EMAIL is not set; no email sent.")
+                delivered = send_alerts(notify, subject, body, text, build_push_text(available_courses))
 
-            if fail_on_available:
-                # Non-zero exit makes GitHub Actions email you about the run
+            if fail_on_available and not delivered:
+                # Backup: a failed run makes GitHub email you when the alert couldn't be sent
                 return 1
         else:
             logging.info("No courses are currently available.")
@@ -404,21 +473,19 @@ def perform_web_task(config_path, dry_run=False, fail_on_available=False):
         driver.quit()
 
 
-def send_test_email():
-    # Verify the email provider works without waiting for a real seat opening
-    if not EMAILS:
-        logging.error("ALERT_EMAIL is not set; nothing to send to.")
-        return 2
-
+def send_test_email(config_path, notify_flag=None):
+    # Verify the chosen alert channels work without waiting for a real seat opening
+    notify = resolve_notify(notify_flag, get_config(config_path))
     sample = {"FACC 300": [("2678", "Lec 002", "Open seats (3)")]}
-    ok = send_email(
-        EMAILS,
+    ok = send_alerts(
+        notify,
         "[test] 1 section(s) available: FACC 300",
         build_email_body(sample, "202701"),
         build_email_text(sample, "202701"),
+        build_push_text(sample),
     )
     if ok:
-        logging.info(f"Test email sent to {', '.join(EMAILS)} — check your inbox (and spam).")
+        logging.info("Test alert sent — check your inbox (and spam) and/or the ntfy app.")
     return 0 if ok else 2
 
 
@@ -427,12 +494,14 @@ if __name__ == "__main__":
     parser.add_argument('--config', default='config.json', help='Path to the configuration file')
     parser.add_argument('--dry-run', action='store_true', help='Log the alert instead of sending it')
     parser.add_argument('--fail-on-available', action='store_true',
-                        help='Exit 1 when a seat opens (GitHub Actions then emails you about the failed run)')
+                        help='Exit 1 when a seat opens but the alert could not be sent (GitHub then emails you about the failed run)')
     parser.add_argument('--test-email', action='store_true',
-                        help='Send a sample alert to ALERT_EMAIL and exit (no scraping)')
+                        help='Send a sample alert to ALERT_EMAIL / NTFY_TOPIC and exit (no scraping)')
+    parser.add_argument('--notify', choices=NOTIFY_CHOICES,
+                        help='How to alert: email, push, or both (overrides ALERT_METHOD and config.json)')
     args = parser.parse_args()
 
     if args.test_email:
-        sys.exit(send_test_email())
+        sys.exit(send_test_email(args.config, args.notify))
 
-    sys.exit(perform_web_task(args.config, args.dry_run, args.fail_on_available))
+    sys.exit(perform_web_task(args.config, args.dry_run, args.fail_on_available, args.notify))

@@ -6,7 +6,7 @@ on:
   workflow_dispatch:  # Allows manual triggering
     inputs:
       test_email:
-        description: 'Send a sample alert email instead of checking seats'
+        description: 'Send a sample alert (email/push) instead of checking seats'
         type: boolean
         default: false
 
@@ -39,6 +39,11 @@ jobs:
           # ALERT_EMAIL can hold several addresses separated by commas.
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+          RESEND_FROM: ${{ secrets.RESEND_FROM }}
+          # Phone push notifications via the free ntfy app (comma-separate several topics)
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          # Optional override of "notify" in config.json: email, push, or both
+          ALERT_METHOD: ${{ vars.ALERT_METHOD }}
         run: |
           if [ "${{ inputs.test_email }}" = "true" ]; then
             python register.py --test-email
