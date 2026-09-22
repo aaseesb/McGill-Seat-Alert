@@ -15,10 +15,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
@@ -28,21 +28,17 @@ jobs:
           pip install -r requirements.txt
 
       - name: Setup Chrome and ChromeDriver
-        uses: browser-actions/setup-chrome@v1
+        uses: browser-actions/setup-chrome@v2
         with:
           install-chromedriver: true
 
       - name: Run course check script
         env:
-          # Optional: set these as repository secrets to get a real email.
-          # Without them, the step below fails on purpose when a seat opens and
-          # GitHub emails you about the failed workflow run.
+          # Optional: without these the step fails on purpose when a seat opens,
+          # and GitHub emails you about the failed run instead.
+          # ALERT_EMAIL can hold several addresses separated by commas.
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
-          SMTP_HOST: ${{ secrets.SMTP_HOST }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT }}
-          SMTP_USER: ${{ secrets.SMTP_USER }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
         run: |
           if [ "${{ inputs.test_email }}" = "true" ]; then
             python register.py --test-email

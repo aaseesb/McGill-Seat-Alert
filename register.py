@@ -3,29 +3,22 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException
 from tenacity import retry, stop_after_attempt, wait_fixed
 import os
 import re
 import sys
-import smtplib
 import requests
 import json
 import argparse
 import logging
 import traceback
-from email.message import EmailMessage
 
 # Use environment variables for credentials
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY')
 RESEND_FROM = os.environ.get('RESEND_FROM') or 'Seat Alert <onboarding@resend.dev>'
-EMAIL = os.environ.get('ALERT_EMAIL')
-
-# Optional SMTP fallback (e.g. Gmail with an app password)
-SMTP_HOST = os.environ.get('SMTP_HOST')
-SMTP_PORT = int(os.environ.get('SMTP_PORT') or '587')
-SMTP_USER = os.environ.get('SMTP_USER')
-SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD')
+# One or more addresses, separated by commas
+EMAILS = [e.strip() for e in (os.environ.get('ALERT_EMAIL') or '').split(',') if e.strip()]
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -54,69 +47,28 @@ def load_webpage(driver, url):
     logging.info(f"Webpage loaded successfully: {url}")
 
 
-def send_email(recipient, subject, html, text=None):
-    # Prefer Resend when configured, otherwise fall back to plain SMTP
-    text = text or html_to_text(html)
-    if RESEND_API_KEY:
-        return _send_email_resend(recipient, subject, html, text)
-    if SMTP_HOST and SMTP_USER and SMTP_PASSWORD:
-        return _send_email_smtp(recipient, subject, html, text)
-    logging.warning("No email provider configured (set RESEND_API_KEY or SMTP_*); skipping email.")
-    return False
-
-
-def html_to_text(html):
-    # Crude but adequate plain-text alternative for clients that refuse HTML
-    text = re.sub(r'(?i)<br\s*/?>|</(p|li|h[1-6]|tr|div)>', '\n', html)
-    text = re.sub(r'(?i)<li[^>]*>', '  - ', text)
-    text = re.sub(r'<[^>]+>', '', text)
-    text = text.replace('&mdash;', '-').replace('&nbsp;', ' ').replace('&amp;', '&')
-    return re.sub(r'\n{3,}', '\n\n', text).strip()
-
-
-def _send_email_resend(recipient, subject, html, text):
+def send_email(recipients, subject, html, text):
+    # One Resend batch request sends a separate email to each recipient,
+    # so nobody sees the other addresses
+    if not RESEND_API_KEY:
+        logging.warning("RESEND_API_KEY is not set; skipping email.")
+        return False
     try:
         response = requests.post(
-            "https://api.resend.com/emails",
-            headers={
-                "Authorization": f"Bearer {RESEND_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "from": RESEND_FROM,
-                "to": [recipient],
-                "subject": subject,
-                "html": html,
-                "text": text,
-            },
+            "https://api.resend.com/emails/batch",
+            headers={"Authorization": f"Bearer {RESEND_API_KEY}"},
+            json=[
+                {"from": RESEND_FROM, "to": [r], "subject": subject, "html": html, "text": text}
+                for r in recipients
+            ],
             timeout=30,
         )
         response.raise_for_status()
-        logging.info(f"Email sent to {recipient} via Resend (id {response.json().get('id')})")
+        logging.info(f"Email sent via Resend to {len(recipients)} recipient(s)")
         return True
     except requests.exceptions.RequestException as e:
-        detail = getattr(e.response, 'text', '') if getattr(e, 'response', None) is not None else ''
-        logging.error(f"Failed to send email to {recipient}: {e} {detail}")
-        return False
-
-
-def _send_email_smtp(recipient, subject, html, text):
-    try:
-        msg = EmailMessage()
-        msg["From"] = os.environ.get('SMTP_FROM') or SMTP_USER
-        msg["To"] = recipient
-        msg["Subject"] = subject
-        msg.set_content(text)
-        msg.add_alternative(html, subtype='html')
-
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as server:
-            server.starttls()
-            server.login(SMTP_USER, SMTP_PASSWORD)
-            server.send_message(msg)
-        logging.info(f"Email sent successfully to {recipient} via SMTP")
-        return True
-    except Exception as e:
-        logging.error(f"Failed to send email to {recipient} via SMTP: {e}")
+        detail = e.response.text if e.response is not None else ''
+        logging.error(f"Failed to send email: {e} {detail}")
         return False
 
 
@@ -362,7 +314,7 @@ def build_email_text(available_courses, term):
     for code, sections in available_courses.items():
         for crn, section_type, availability in sections:
             lines.append(f"  {code}  {section_type}  CRN {crn}  ->  {availability}")
-    lines += ["", "Register: https://horizon.mcgill.ca"]
+    lines += ["", "Register: https://horizon.mcgill.ca/pban1/twbkwbis.P_WWWLogin"]
     return "\n".join(lines)
 
 
@@ -430,8 +382,8 @@ def perform_web_task(config_path, dry_run=False, fail_on_available=False):
             if dry_run:
                 logging.info(f"[dry-run] Subject: {subject}")
                 logging.info(f"[dry-run] Body:\n{text}")
-            elif EMAIL:
-                send_email(EMAIL, subject, body, text)
+            elif EMAILS:
+                send_email(EMAILS, subject, body, text)
             else:
                 logging.warning("ALERT_EMAIL is not set; no email sent.")
 
@@ -454,19 +406,19 @@ def perform_web_task(config_path, dry_run=False, fail_on_available=False):
 
 def send_test_email():
     # Verify the email provider works without waiting for a real seat opening
-    if not EMAIL:
+    if not EMAILS:
         logging.error("ALERT_EMAIL is not set; nothing to send to.")
         return 2
 
     sample = {"FACC 300": [("2678", "Lec 002", "Open seats (3)")]}
     ok = send_email(
-        EMAIL,
+        EMAILS,
         "[test] 1 section(s) available: FACC 300",
         build_email_body(sample, "202701"),
         build_email_text(sample, "202701"),
     )
     if ok:
-        logging.info(f"Test email sent to {EMAIL} — check your inbox (and spam).")
+        logging.info(f"Test email sent to {', '.join(EMAILS)} — check your inbox (and spam).")
     return 0 if ok else 2
 
 

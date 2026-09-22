@@ -1,105 +1,88 @@
 # McGill Seat Alert
 
-An automated tool to check course availability at McGill University and send notifications when courses become available.
+Watches McGill's Visual Schedule Builder for open seats and emails you when a
+section you want frees up. Runs for free on GitHub Actions every 10 minutes.
 
-> This project is a fork of the original [McGill Seat Alert](https://github.com/hanzili/mcgill-seat-alert) by [hanzili](https://github.com/hanzili), with modifications to support:
-> - Optional filtering for specific CRNs
-> - Updated for the current McGill VSB course selection page
-
-## Description
-
-This script automatically checks the availability of courses at McGill University.
-It supports:
-- Monitoring multiple courses in a single page load
-- Optional filtering for specific CRNs per course
-- Notifications when sections have open seats
-
-This script automatically checks the availability of specified courses at McGill University using GitHub Actions. When a course becomes available, it emails you.
-
-### Automation via GitHub Actions
-- The workflow runs automatically every 10 minutes to monitor course availability.
-- This acts as a lightweight CI/CD process, letting you receive notifications without manually running the script.
+> Fork of [McGill Seat Alert](https://github.com/hanzili/mcgill-seat-alert) by
+> [hanzili](https://github.com/hanzili), updated for the current VSB site, with
+> per-CRN filtering and email alerts via Resend.
 
 ## Setup
 
-1. Fork this repository to your GitHub account.
+1. **Fork this repository.**
 
-2. Choose how you want to be notified (all email, no Pushover):
-   - **Nothing to set up (default):** the script exits with a failure when a seat
-     opens, and GitHub emails you about the failed workflow run. Make sure
-     GitHub > Settings > Notifications > Actions has email notifications enabled.
-   - **Resend (recommended — a real formatted email):** create a free account at
-     https://resend.com, make an API key under *API Keys*, and add the repository
-     secrets `RESEND_API_KEY` and `ALERT_EMAIL`. The free tier sends from
-     `onboarding@resend.dev` with no domain setup; if you verify your own domain,
-     set `RESEND_FROM` (e.g. `Seat Alert <alerts@yourdomain.com>`) as well.
-     Check it works with `python register.py --test-email`.
-   - **Any SMTP mailbox (e.g. Gmail app password):** add the repository secrets
-     `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` and `ALERT_EMAIL`.
+2. **Pick your courses** in `config.json`:
 
-3. Set up GitHub Secrets (only for the Resend/SMTP options):
-   - Go to your forked repository on GitHub
-   - Navigate to Settings > Secrets and variables > Actions
-   - Add the secrets listed above for your chosen option
+   ```json
+   {
+       "courses": [
+           { "code": "FACC 300", "crns": ["2678"] },
+           { "code": "MATH 140" }
+       ],
+       "term": "202701"
+   }
+   ```
 
-4. Configure courses:
-   - Edit the `config.json` file in the repository:
-     ```json
-     {
-         "courses": [
-              { "code": "COURSE-1", "crns": ["CRN1", "CRN2"] },
-              { "code": "COURSE-2" }
-           ],
-         "term": "YYYYMM"
-     }
-     ```
-   - Replace `"COURSE-1"`, `"COURSE-2"` with the courses you want to check
-   - CRNs are optional per course. If omitted, all sections of that course are monitored
-   - Set the `"term"` to the desired semester (e.g., "202409" for Fall 2024, "202601" for Winter 2026)
+   - `code`: the course code as shown on VSB, e.g. `FACC 300`.
+   - `crns`: optional. Omit it to be alerted about any section of the course.
+   - `term`: year and month, e.g. `202609` (Fall 2026), `202701` (Winter 2027), `202705` (Summer 2027).
 
-5. Enable GitHub Actions:
-   - Go to the "Actions" tab in your forked repository
-   - You should see the "Check Course Availability" workflow
-   - Enable the workflow if it's not already enabled
+3. **Set up email** under Settings → Secrets and variables → Actions → New repository secret:
 
-## Usage
+   | Secret | Value |
+   | --- | --- |
+   | `RESEND_API_KEY` | An API key from [resend.com](https://resend.com) (free tier is fine) |
+   | `ALERT_EMAIL` | Where to send alerts. For several people, separate addresses with commas: `me@gmail.com,friend@mail.mcgill.ca` |
+   | `RESEND_FROM` | Optional. A sender on a domain you've verified with Resend, e.g. `Seat Alert <alerts@yourdomain.com>` |
 
-Once set up, the GitHub Action will run automatically every 10 minutes to check course availability. You can also manually trigger the workflow:
+   Without a verified domain, Resend's free tier sends from
+   `onboarding@resend.dev` and **will only deliver to the email you signed
+   up to Resend with**. To alert other people, verify a domain in Resend and
+   set `RESEND_FROM`.
 
-1. Go to the "Actions" tab in your repository
-2. Select the "Check Course Availability" workflow
-3. Click "Run workflow"
+   Skip this step entirely and you still get notified: the workflow fails on
+   purpose when a seat opens, and GitHub emails you about the failed run
+   (keep Settings → Notifications → Actions enabled on your account).
 
-You will be emailed when any of your specified sections become available.
+4. **Enable the workflow** in the Actions tab if GitHub hasn't already.
 
-Run it locally too:
+## Testing it
 
-```bash
-python register.py --dry-run          # log the alert instead of sending it
-python register.py                    # send the alert if a seat is open
-python register.py --test-email       # send a sample alert, no scraping
-```
+In the Actions tab, open **Check Course Availability** → **Run workflow**,
+tick **Send a sample alert email instead of checking seats**, then run it.
+The step log shows whether Resend accepted the email:
 
-With Resend, set the two variables in the same shell first:
+- `ALERT_EMAIL is not set` means the secret is missing or misspelled.
+- `401` means the API key is wrong. Paste a new one over the secret.
+- `403` usually means you're sending to an address Resend won't deliver to
+  without a verified domain (see step 3).
+
+Leave the box unticked to run a normal seat check on demand.
+
+## Running locally
 
 ```bash
-export RESEND_API_KEY=re_xxxxxxxx
-export ALERT_EMAIL=you@example.com
+python -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python register.py --dry-run     # check seats, log the alert instead of sending it
+.venv/bin/python register.py --test-email  # send a sample alert, no scraping
+.venv/bin/python register.py               # check seats and email if one is open
 ```
 
-### How it works
+Emailing needs `RESEND_API_KEY` and `ALERT_EMAIL` exported in your shell.
+You'll also need Chrome installed.
 
-VSB only renders the sections belonging to the schedule it is currently
-considering, so a section can be missing from the page even though it exists.
-The script reads each course's section dropdown, then reloads the page pinned to
-each section combination (`dropdown_<i>_0`) so every CRN's seat and waitlist
-count is read directly from the legend.
+## How it works
 
-## Customization
+VSB only draws the sections of the one schedule it is currently
+considering, so a section can be missing from the page even though it
+exists. The script reads each course's section dropdown, then reloads the
+page pinned to each combination (`dropdown_<i>_0`) so that every CRN's seat
+and waitlist count shows up in the legend.
 
-- To change the check frequency, edit the cron schedule in `.github/workflows/course_check.yml`
-- To modify the script behavior, edit `register.py`
+To check more or less often, edit the cron line in
+`.github/workflows/course_check.yml`.
 
 ## Disclaimer
 
-This tool is for educational purposes only. The user is responsible for any consequences of using this script, including potential violations of McGill University's registration policies.
+For educational purposes only. You're responsible for how you use it,
+including compliance with McGill's registration policies.
