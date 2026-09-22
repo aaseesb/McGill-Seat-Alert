@@ -1,36 +1,56 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# McGill Seat Alert — web app
 
-## Getting Started
+A hosted version of the seat alert: people sign in with an email link, pick courses and sections, and get an email or push notification (ntfy) when a full section opens up. Nobody has to fork the repo.
 
-First, run the development server:
+Stack: Next.js on Vercel, Supabase (auth + Postgres), Resend (email), ntfy (push), GitHub Actions (hourly schedule).
+
+## Local development
 
 ```bash
+cp .env.example .env.local   # fill in the values below
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Deploying
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 1. Supabase
+1. Create a project at supabase.com.
+2. In **SQL Editor**, run `supabase/migrations/0001_init.sql`.
+3. **Authentication → URL Configuration**: set Site URL to your deployed URL and add `https://<your-domain>/auth/callback` (and `http://localhost:3000/auth/callback` for dev) to Redirect URLs.
+4. Copy the project URL, anon key and service role key from **Project Settings → API**.
+5. Optional: under **Authentication → SMTP**, point Supabase at Resend so sign-in emails aren't rate-limited by the built-in sender.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 2. Resend
+Verify a sending domain and create an API key. `RESEND_FROM` looks like `Seat Alert <alerts@yourdomain.com>`.
 
-## Learn More
+### 3. Vercel
+Import the repo, set **Root Directory** to `web`, and add these environment variables:
 
-To learn more about Next.js, take a look at the following resources:
+| Variable | Value |
+| --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | anon key |
+| `SUPABASE_SERVICE_ROLE_KEY` | service role key (server only) |
+| `RESEND_API_KEY` | Resend key |
+| `RESEND_FROM` | verified sender |
+| `SITE_URL` | e.g. `https://seats.example.com` (no trailing slash) |
+| `CRON_SECRET` | a long random string (`openssl rand -hex 32`) |
+| `NTFY_SERVER` | optional, defaults to `https://ntfy.sh` |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+`vercel.json` adds a once-a-day backup check. Vercel sends `CRON_SECRET` automatically.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### 4. Hourly schedule (GitHub Actions)
+In the repo's **Settings → Secrets and variables → Actions**:
+- add the variable `SITE_URL` (the same value as above)
+- add the secret `CRON_SECRET` (the same value as above)
 
-## Deploy on Vercel
+`.github/workflows/hosted-checker.yml` then calls `/api/cron/check` every hour. You can also trigger it by hand from the Actions tab. To check more often during add/drop, edit the cron line in that workflow.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## How checking works
+- Each distinct course/term is fetched once per run from the public Visual Schedule Builder data endpoint, no matter how many people watch it.
+- A user is alerted when a watched section is open and it either just went from full to open, or this is the first check since they added it.
+- Unsubscribe links (including one-click `List-Unsubscribe`) pause all of that user's alerts.
+- Each user can watch at most 12 courses.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Not affiliated with McGill University. The app never asks for Minerva credentials.
