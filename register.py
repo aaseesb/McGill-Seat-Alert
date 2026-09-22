@@ -1,4 +1,4 @@
-from tenacity import retry, stop_after_attempt, wait_fixed
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 import os
 import re
 import sys
@@ -159,7 +159,9 @@ def vsb_token():
     return t, t % 3 + t % 39 + t % 42
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+# Retry only network trouble (not LookupError) and re-raise the original error when out of tries
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=5, max=30),
+       retry=retry_if_exception_type(requests.RequestException), reraise=True)
 def fetch_sections(code, term):
     # Every section of one course in one request: {crn: {type, seats, waitlist}}
     t, e = vsb_token()
@@ -290,6 +292,7 @@ def perform_web_task(config_path, dry_run=False, fail_on_available=False, notify
     logging.info(f"Checking availability for: {[c['display'] for c in courses]} (term {term})")
 
     available_courses = {}
+    unreachable = []
 
     try:
         for course in courses:
@@ -297,6 +300,11 @@ def perform_web_task(config_path, dry_run=False, fail_on_available=False, notify
                 sections = fetch_sections(course['code'], term)
             except LookupError as e:
                 logging.warning(f"{course['display']}: {e}")
+                continue
+            except requests.RequestException as e:
+                # VSB is down or slow; skip it so the next hourly run tries again
+                logging.warning(f"{course['display']}: VSB unreachable ({type(e).__name__}: {e})")
+                unreachable.append(course['display'])
                 continue
             if course['crns']:
                 missing = [c for c in course['crns'] if c not in sections]
@@ -333,6 +341,9 @@ def perform_web_task(config_path, dry_run=False, fail_on_available=False, notify
             if fail_on_available and not delivered:
                 # Backup: a failed run makes GitHub email you when the alert couldn't be sent
                 return 1
+        elif unreachable:
+            logging.warning(f"Could not reach VSB for: {unreachable}; will retry next run.")
+            write_github_summary(f"⚠️ VSB was unreachable for {', '.join(unreachable)}; skipped this check.")
         else:
             logging.info("No courses are currently available.")
             write_github_summary("No sections available on this check.")
