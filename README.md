@@ -28,8 +28,12 @@ This script automatically checks the availability of specified courses at McGill
    - **Nothing to set up (default):** the script exits with a failure when a seat
      opens, and GitHub emails you about the failed workflow run. Make sure
      GitHub > Settings > Notifications > Actions has email notifications enabled.
-   - **Resend (nicer emails):** create a free account at https://resend.com, make an
-     API key, and add the repository secrets `RESEND_API_KEY` and `ALERT_EMAIL`.
+   - **Resend (recommended — a real formatted email):** create a free account at
+     https://resend.com, make an API key under *API Keys*, and add the repository
+     secrets `RESEND_API_KEY` and `ALERT_EMAIL`. The free tier sends from
+     `onboarding@resend.dev` with no domain setup; if you verify your own domain,
+     set `RESEND_FROM` (e.g. `Seat Alert <alerts@yourdomain.com>`) as well.
+     Check it works with `python register.py --test-email`.
    - **Any SMTP mailbox (e.g. Gmail app password):** add the repository secrets
      `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` and `ALERT_EMAIL`.
 
@@ -73,6 +77,14 @@ Run it locally too:
 ```bash
 python register.py --dry-run          # log the alert instead of sending it
 python register.py                    # send the alert if a seat is open
+python register.py --test-email       # send a sample alert, no scraping
+```
+
+With Resend, set the two variables in the same shell first:
+
+```bash
+export RESEND_API_KEY=re_xxxxxxxx
+export ALERT_EMAIL=you@example.com
 ```
 
 ### How it works

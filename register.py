@@ -54,17 +54,27 @@ def load_webpage(driver, url):
     logging.info(f"Webpage loaded successfully: {url}")
 
 
-def send_email(recipient, subject, body):
+def send_email(recipient, subject, html, text=None):
     # Prefer Resend when configured, otherwise fall back to plain SMTP
+    text = text or html_to_text(html)
     if RESEND_API_KEY:
-        return _send_email_resend(recipient, subject, body)
+        return _send_email_resend(recipient, subject, html, text)
     if SMTP_HOST and SMTP_USER and SMTP_PASSWORD:
-        return _send_email_smtp(recipient, subject, body)
+        return _send_email_smtp(recipient, subject, html, text)
     logging.warning("No email provider configured (set RESEND_API_KEY or SMTP_*); skipping email.")
     return False
 
 
-def _send_email_resend(recipient, subject, body):
+def html_to_text(html):
+    # Crude but adequate plain-text alternative for clients that refuse HTML
+    text = re.sub(r'(?i)<br\s*/?>|</(p|li|h[1-6]|tr|div)>', '\n', html)
+    text = re.sub(r'(?i)<li[^>]*>', '  - ', text)
+    text = re.sub(r'<[^>]+>', '', text)
+    text = text.replace('&mdash;', '-').replace('&nbsp;', ' ').replace('&amp;', '&')
+    return re.sub(r'\n{3,}', '\n\n', text).strip()
+
+
+def _send_email_resend(recipient, subject, html, text):
     try:
         response = requests.post(
             "https://api.resend.com/emails",
@@ -76,12 +86,13 @@ def _send_email_resend(recipient, subject, body):
                 "from": RESEND_FROM,
                 "to": [recipient],
                 "subject": subject,
-                "html": body,
+                "html": html,
+                "text": text,
             },
             timeout=30,
         )
         response.raise_for_status()
-        logging.info(f"Email sent successfully to {recipient}")
+        logging.info(f"Email sent to {recipient} via Resend (id {response.json().get('id')})")
         return True
     except requests.exceptions.RequestException as e:
         detail = getattr(e.response, 'text', '') if getattr(e, 'response', None) is not None else ''
@@ -89,14 +100,14 @@ def _send_email_resend(recipient, subject, body):
         return False
 
 
-def _send_email_smtp(recipient, subject, body):
+def _send_email_smtp(recipient, subject, html, text):
     try:
         msg = EmailMessage()
         msg["From"] = os.environ.get('SMTP_FROM', SMTP_USER)
         msg["To"] = recipient
         msg["Subject"] = subject
-        msg.set_content(re.sub(r'<[^>]+>', '', body))
-        msg.add_alternative(body, subtype='html')
+        msg.set_content(text)
+        msg.add_alternative(html, subtype='html')
 
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as server:
             server.starttls()
@@ -285,20 +296,74 @@ def setup_driver():
     return driver
 
 
+TERM_NAMES = {'01': 'Winter', '05': 'Summer', '09': 'Fall'}
+
+
+def term_label(term):
+    term = str(term)
+    season = TERM_NAMES.get(term[4:6])
+    return f"{season} {term[:4]}" if season else term
+
+
 def build_email_body(available_courses, term):
-    body = [
-        "<h2>Course Availability Alert</h2>",
-        f"<p>The following sections are available for term {term}:</p>",
-        "<ul>",
-    ]
+    # Inline styles only: mail clients strip <style> blocks and external CSS
+    rows = []
     for code, sections in available_courses.items():
-        body.append(f"<li><strong>{code}</strong><ul>")
         for crn, section_type, availability in sections:
-            body.append(f"<li>{section_type} &mdash; CRN {crn}: {availability}</li>")
-        body.append("</ul></li>")
-    body.append("</ul>")
-    body.append('<p><a href="https://horizon.mcgill.ca">Register on Minerva</a></p>')
-    return "".join(body)
+            rows.append(
+                '<tr>'
+                '<td style="padding:10px 14px;border-top:1px solid #e5e7eb;font-weight:600;color:#111827;">'
+                f'{code}</td>'
+                '<td style="padding:10px 14px;border-top:1px solid #e5e7eb;color:#374151;">'
+                f'{section_type}</td>'
+                '<td style="padding:10px 14px;border-top:1px solid #e5e7eb;color:#374151;'
+                f'font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">{crn}</td>'
+                '<td style="padding:10px 14px;border-top:1px solid #e5e7eb;color:#047857;font-weight:600;">'
+                f'{availability}</td>'
+                '</tr>'
+            )
+
+    return f"""\
+<div style="margin:0;padding:24px 12px;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;">
+    <tr>
+      <td style="padding:20px 24px;background:#b91c1c;">
+        <div style="color:#ffffff;font-size:18px;font-weight:700;">A seat just opened</div>
+        <div style="color:#fecaca;font-size:13px;margin-top:4px;">McGill &middot; {term_label(term)}</div>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:8px 0 0;">
+        <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="font-size:14px;border-collapse:collapse;">
+          <tr style="background:#f9fafb;">
+            <th align="left" style="padding:8px 14px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#6b7280;">Course</th>
+            <th align="left" style="padding:8px 14px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#6b7280;">Section</th>
+            <th align="left" style="padding:8px 14px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#6b7280;">CRN</th>
+            <th align="left" style="padding:8px 14px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#6b7280;">Status</th>
+          </tr>
+          {''.join(rows)}
+        </table>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:22px 24px 26px;">
+        <a href="https://horizon.mcgill.ca" style="display:inline-block;padding:11px 20px;background:#b91c1c;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">Register on Minerva</a>
+        <p style="margin:16px 0 0;color:#6b7280;font-size:12px;line-height:1.5;">
+          Seats go fast &mdash; register now. Sent by your McGill seat alert.
+        </p>
+      </td>
+    </tr>
+  </table>
+</div>"""
+
+
+def build_email_text(available_courses, term):
+    lines = [f"A seat just opened - McGill {term_label(term)}", ""]
+    for code, sections in available_courses.items():
+        for crn, section_type, availability in sections:
+            lines.append(f"  {code}  {section_type}  CRN {crn}  ->  {availability}")
+    lines += ["", "Register: https://horizon.mcgill.ca"]
+    return "\n".join(lines)
 
 
 def write_github_summary(text):
@@ -359,13 +424,14 @@ def perform_web_task(config_path, dry_run=False, fail_on_available=False):
                 num_sections, ", ".join(available_courses)
             )
             body = build_email_body(available_courses, term)
+            text = build_email_text(available_courses, term)
             write_github_summary(f"## 🎉 {subject}\n\n{body}")
 
             if dry_run:
                 logging.info(f"[dry-run] Subject: {subject}")
-                logging.info(f"[dry-run] Body: {body}")
+                logging.info(f"[dry-run] Body:\n{text}")
             elif EMAIL:
-                send_email(EMAIL, subject, body)
+                send_email(EMAIL, subject, body, text)
             else:
                 logging.warning("ALERT_EMAIL is not set; no email sent.")
 
@@ -386,12 +452,35 @@ def perform_web_task(config_path, dry_run=False, fail_on_available=False):
         driver.quit()
 
 
+def send_test_email():
+    # Verify the email provider works without waiting for a real seat opening
+    if not EMAIL:
+        logging.error("ALERT_EMAIL is not set; nothing to send to.")
+        return 2
+
+    sample = {"FACC 300": [("2678", "Lec 002", "Open seats (3)")]}
+    ok = send_email(
+        EMAIL,
+        "[test] 1 section(s) available: FACC 300",
+        build_email_body(sample, "202701"),
+        build_email_text(sample, "202701"),
+    )
+    if ok:
+        logging.info(f"Test email sent to {EMAIL} — check your inbox (and spam).")
+    return 0 if ok else 2
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Check course availability at McGill')
     parser.add_argument('--config', default='config.json', help='Path to the configuration file')
     parser.add_argument('--dry-run', action='store_true', help='Log the alert instead of sending it')
     parser.add_argument('--fail-on-available', action='store_true',
                         help='Exit 1 when a seat opens (GitHub Actions then emails you about the failed run)')
+    parser.add_argument('--test-email', action='store_true',
+                        help='Send a sample alert to ALERT_EMAIL and exit (no scraping)')
     args = parser.parse_args()
+
+    if args.test_email:
+        sys.exit(send_test_email())
 
     sys.exit(perform_web_task(args.config, args.dry_run, args.fail_on_available))
