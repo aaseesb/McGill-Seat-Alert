@@ -18,12 +18,12 @@ from email.message import EmailMessage
 
 # Use environment variables for credentials
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY')
-RESEND_FROM = os.environ.get('RESEND_FROM', 'Seat Alert <onboarding@resend.dev>')
+RESEND_FROM = os.environ.get('RESEND_FROM') or 'Seat Alert <onboarding@resend.dev>'
 EMAIL = os.environ.get('ALERT_EMAIL')
 
 # Optional SMTP fallback (e.g. Gmail with an app password)
 SMTP_HOST = os.environ.get('SMTP_HOST')
-SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
+SMTP_PORT = int(os.environ.get('SMTP_PORT') or '587')
 SMTP_USER = os.environ.get('SMTP_USER')
 SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD')
 
@@ -103,7 +103,7 @@ def _send_email_resend(recipient, subject, html, text):
 def _send_email_smtp(recipient, subject, html, text):
     try:
         msg = EmailMessage()
-        msg["From"] = os.environ.get('SMTP_FROM', SMTP_USER)
+        msg["From"] = os.environ.get('SMTP_FROM') or SMTP_USER
         msg["To"] = recipient
         msg["Subject"] = subject
         msg.set_content(text)
