@@ -1,6 +1,6 @@
 {
     "courses": [
-        { "code": "ECSE 316" }
+        { "code": "FACC 300", "crns": ["2678"] }
     ],
-    "term": "202609"
+    "term": "202701"
 }

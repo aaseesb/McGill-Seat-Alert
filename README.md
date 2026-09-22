@@ -14,7 +14,7 @@ It supports:
 - Optional filtering for specific CRNs per course
 - Notifications when sections have open seats
 
-This script automatically checks the availability of specified courses at McGill University using GitHub Actions. When a course becomes available, it sends a notification via Pushover.
+This script automatically checks the availability of specified courses at McGill University using GitHub Actions. When a course becomes available, it emails you.
 
 ### Automation via GitHub Actions
 - The workflow runs automatically every 10 minutes to monitor course availability.
@@ -24,17 +24,19 @@ This script automatically checks the availability of specified courses at McGill
 
 1. Fork this repository to your GitHub account.
 
-2. Set up Pushover:
-   - Create a Pushover account at https://pushover.net/
-   - Create a new application in Pushover to get an API token
-   - Note down your User Key and API Token
+2. Choose how you want to be notified (all email, no Pushover):
+   - **Nothing to set up (default):** the script exits with a failure when a seat
+     opens, and GitHub emails you about the failed workflow run. Make sure
+     GitHub > Settings > Notifications > Actions has email notifications enabled.
+   - **Resend (nicer emails):** create a free account at https://resend.com, make an
+     API key, and add the repository secrets `RESEND_API_KEY` and `ALERT_EMAIL`.
+   - **Any SMTP mailbox (e.g. Gmail app password):** add the repository secrets
+     `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` and `ALERT_EMAIL`.
 
-3. Set up GitHub Secrets:
+3. Set up GitHub Secrets (only for the Resend/SMTP options):
    - Go to your forked repository on GitHub
    - Navigate to Settings > Secrets and variables > Actions
-   - Add two new repository secrets:
-     - `PUSHOVER_USER_KEY`: Your Pushover User Key
-     - `PUSHOVER_API_TOKEN`: Your Pushover API Token
+   - Add the secrets listed above for your chosen option
 
 4. Configure courses:
    - Edit the `config.json` file in the repository:
@@ -64,7 +66,22 @@ Once set up, the GitHub Action will run automatically every 10 minutes to check 
 2. Select the "Check Course Availability" workflow
 3. Click "Run workflow"
 
-You will receive a Pushover notification when any of your specified courses become available.
+You will be emailed when any of your specified sections become available.
+
+Run it locally too:
+
+```bash
+python register.py --dry-run          # log the alert instead of sending it
+python register.py                    # send the alert if a seat is open
+```
+
+### How it works
+
+VSB only renders the sections belonging to the schedule it is currently
+considering, so a section can be missing from the page even though it exists.
+The script reads each course's section dropdown, then reloads the page pinned to
+each section combination (`dropdown_<i>_0`) so every CRN's seat and waitlist
+count is read directly from the legend.
 
 ## Customization
 
