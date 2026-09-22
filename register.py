@@ -1,5 +1,6 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -312,7 +313,15 @@ def setup_driver():
     chrome_options.add_argument('--disable-dev-shm-usage')
     chrome_options.add_argument('--window-size=1280,2000')
 
-    driver = webdriver.Chrome(options=chrome_options)
+    # Pin the Chrome binary and driver installed by setup-chrome so the runner's
+    # preinstalled (older) Chrome isn't paired with a newer chromedriver
+    chrome_path = os.environ.get('CHROME_PATH')
+    if chrome_path:
+        chrome_options.binary_location = chrome_path
+    driver_path = os.environ.get('CHROMEDRIVER_PATH')
+    service = Service(executable_path=driver_path) if driver_path else Service()
+
+    driver = webdriver.Chrome(service=service, options=chrome_options)
     driver.set_page_load_timeout(90)
     return driver
 

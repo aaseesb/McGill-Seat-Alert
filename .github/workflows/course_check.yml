@@ -37,12 +37,15 @@ jobs:
           pip install -r requirements.txt
 
       - name: Setup Chrome and ChromeDriver
+        id: setup-chrome
         uses: browser-actions/setup-chrome@v2
         with:
           install-chromedriver: true
 
       - name: Run course check script
         env:
+          CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+          CHROMEDRIVER_PATH: ${{ steps.setup-chrome.outputs.chromedriver-path }}
           # Optional: without these the step fails on purpose when a seat opens,
           # and GitHub emails you about the failed run instead.
           # ALERT_EMAIL can hold several addresses separated by commas.
