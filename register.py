@@ -1,10 +1,3 @@
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import NoSuchElementException
 from tenacity import retry, stop_after_attempt, wait_fixed
 import os
 import re
@@ -13,7 +6,9 @@ import requests
 import json
 import argparse
 import logging
+import time
 import traceback
+import xml.etree.ElementTree as ET
 
 # Use environment variables for credentials
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY')
@@ -40,16 +35,6 @@ def get_config(path):
     except json.JSONDecodeError:
         logging.error(f"Error reading config file: {path}")
         return None
-
-
-@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
-def load_webpage(driver, url):
-    # Load webpage with retry mechanism in case of failure
-    driver.get(url)
-    WebDriverWait(driver, 40).until(
-        EC.presence_of_element_located((By.CLASS_NAME, "course_box"))
-    )
-    logging.info(f"Webpage loaded successfully: {url}")
 
 
 def send_email(recipients, subject, html, text):
@@ -142,26 +127,6 @@ def send_alerts(notify, subject, html, text, push_text):
     return sent_any and ok
 
 
-def build_url(courses, term, page="results", dropdowns=None):
-    # Build a VSB URL holding every course; `dropdowns` pins a specific
-    # section combination per course index (see get_section_options)
-    term = term.replace(' ', '-')
-    base = (
-        f"https://vsb.mcgill.ca/vsb/criteria.jsp?"
-        f"access=0&lang=en&tip=1&page={page}&scratch=0&advice=0&legend=1"
-        f"&term={term}&sort=none&filters=iiiiiiiiii"
-        "&bbs=&ds=&cams=DISTANCE_DOWNTOWN_MACDONALD_OFF-CAMPUS"
-        "&locs=any&isrts=any&ses=any&pl=&pac=1"
-    )
-
-    for i, course in enumerate(courses):
-        base += f"&course_{i}_0={course['code']}"
-        if dropdowns and dropdowns.get(i):
-            base += f"&dropdown_{i}_0={dropdowns[i]}"
-
-    return base
-
-
 def normalize_courses(raw_courses):
     normalized = []
 
@@ -185,145 +150,44 @@ def normalize_courses(raw_courses):
     return normalized
 
 
-def _read_options(select):
-    options = []
-    for option in select.find_elements(By.TAG_NAME, "option"):
-        value = option.get_attribute("value") or ""
-        if value.startswith("us_"):
-            options.append((value, re.findall(r'\d{4,}', value)))
-    return options
+VSB_API = "https://vsb.mcgill.ca/vsb/api/class-data"
 
 
-def get_section_options(driver, course):
-    # VSB only renders the sections of the schedule it is currently considering.
-    # Each course has a dropdown listing every section combination, e.g.
-    # value="us_--202701_2678-2679-" -> "Lec 002 - Tut 003 or Lec 006 - Tut 003".
-    # Reloading with dropdown_<i>_0 set forces that combination into the legend.
-    # The first dropdown on the page belongs to a hidden template, so the
-    # dropdown is located through the course's own code cell.
-    for cell in driver.find_elements(By.CLASS_NAME, "cbox-cn"):
-        code = re.sub(r'\s+', '-', cell.text.strip().upper())
-        if code != course["code"]:
-            continue
-        try:
-            row = cell.find_element(By.XPATH, "ancestor::table[contains(@class,'cbox-expand-region')][1]")
-            select = row.find_element(By.CSS_SELECTOR, "select.cbox-dropdown")
-        except NoSuchElementException:
-            continue
-        options = _read_options(select)
-        if options:
-            return options
-
-    logging.warning(f"No section dropdown found for {course['display']}")
-    return []
+def vsb_token():
+    # VSB rejects requests without this clock-derived token (its own JS computes it)
+    t = int(time.time() / 60) % 1000
+    return t, t % 3 + t % 39 + t % 42
 
 
-def parse_course_box(driver, course):
-    # Read every section currently rendered in the legend for this course
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+def fetch_sections(code, term):
+    # Every section of one course in one request: {crn: {type, seats, waitlist}}
+    t, e = vsb_token()
+    response = requests.get(VSB_API, params={
+        "term": term, "course_0_0": code, "rq_0_0": "null", "t": t, "e": e, "nouser": 1,
+    }, timeout=30)
+    response.raise_for_status()
+    root = ET.fromstring(response.text)
+    errors = [err.text for err in root.iter("error") if err.text]
+    if errors:
+        raise LookupError("; ".join(errors))
     sections = {}
-    for box in driver.find_elements(By.CLASS_NAME, "course_box"):
-        try:
-            title = box.find_element(By.CLASS_NAME, "course_title").text.strip()
-        except NoSuchElementException:
-            continue
-        if title.upper() != course["display"]:
-            continue
-
-        for cell in box.find_elements(By.CSS_SELECTOR, "td"):
-            try:
-                section_type = cell.find_element(By.CLASS_NAME, "type_block").text.strip()
-                crn = cell.find_element(By.CLASS_NAME, "crn_value").text.strip()
-            except NoSuchElementException:
-                continue
-
-            seats = None
-            for cls in ("seatText", "fullText"):
-                try:
-                    seats = cell.find_element(By.CSS_SELECTOR, f"span.nowrap span.{cls}").text.strip()
-                    break
-                except NoSuchElementException:
-                    continue
-
-            waitlist = None
-            try:
-                waitlist_text = cell.find_element(By.CLASS_NAME, "legend_waitlist").text.strip()
-                waitlist = waitlist_text.split(":", 1)[-1].strip()
-            except NoSuchElementException:
-                pass
-
-            sections[crn] = {"type": section_type, "seats": seats, "waitlist": waitlist}
-
-    return sections
-
-
-def get_course_sections(driver, courses, course_index, term):
-    # Walk every section combination for one course and collect seat status per CRN
-    course = courses[course_index]
-    target_crns = course["crns"]
-
-    options = get_section_options(driver, course)
-    if not options:
-        logging.warning(f"No sections listed for {course['display']}; is the code or term wrong?")
-        return {}
-
-    if target_crns:
-        wanted = [opt for opt in options if any(c in opt[1] for c in target_crns)]
-        if not wanted:
-            logging.warning(
-                f"CRN(s) {target_crns} not found in the section list for {course['display']}; checking all sections."
-            )
-            wanted = options
-    else:
-        wanted = options
-
-    sections = {}
-    for value, _ in wanted:
-        url = build_url(courses, term, dropdowns={course_index: value})
-        load_webpage(driver, url)
-        found = parse_course_box(driver, course)
-        logging.info(f"{course['display']} [{value}] -> {found}")
-        sections.update(found)
-
-        if target_crns and all(c in sections for c in target_crns):
-            break
-
-    if target_crns:
-        sections = {crn: info for crn, info in sections.items() if crn in target_crns}
-
+    for block in root.iter("block"):
+        sections[block.get("key")] = {
+            "type": block.get("disp") or block.get("type"),
+            "seats": int(block.get("os") or 0),
+            "waitlist": int(block.get("ws") or 0),
+        }
     return sections
 
 
 def is_available(info):
-    # A section counts as available if it has open seats or an open waitlist
-    seats = (info.get("seats") or "").strip()
-    waitlist = (info.get("waitlist") or "").strip()
-
-    if seats and seats.lower() != "full" and seats != "0":
-        return "Open seats ({})".format(seats)
-    if waitlist and waitlist.lower() not in ("none", "full", "0"):
-        return "Waitlist ({})".format(waitlist)
+    # A section counts as available if it has open seats or open waitlist spots
+    if info["seats"] > 0:
+        return "Open seats ({})".format(info["seats"])
+    if info["waitlist"] > 0:
+        return "Waitlist ({})".format(info["waitlist"])
     return None
-
-
-def setup_driver():
-    # Configure and initialize Chrome WebDriver
-    chrome_options = Options()
-    chrome_options.add_argument('--headless=new')
-    chrome_options.add_argument('--no-sandbox')
-    chrome_options.add_argument('--disable-dev-shm-usage')
-    chrome_options.add_argument('--window-size=1280,2000')
-
-    # Pin the Chrome binary and driver installed by setup-chrome so the runner's
-    # preinstalled (older) Chrome isn't paired with a newer chromedriver
-    chrome_path = os.environ.get('CHROME_PATH')
-    if chrome_path:
-        chrome_options.binary_location = chrome_path
-    driver_path = os.environ.get('CHROMEDRIVER_PATH')
-    service = Service(executable_path=driver_path) if driver_path else Service()
-
-    driver = webdriver.Chrome(service=service, options=chrome_options)
-    driver.set_page_load_timeout(90)
-    return driver
 
 
 TERM_NAMES = {'01': 'Winter', '05': 'Summer', '09': 'Fall'}
@@ -425,24 +289,25 @@ def perform_web_task(config_path, dry_run=False, fail_on_available=False, notify
 
     logging.info(f"Checking availability for: {[c['display'] for c in courses]} (term {term})")
 
-    driver = setup_driver()
     available_courses = {}
 
     try:
-        # One load to read the section dropdowns for every course
-        load_webpage(driver, build_url(courses, term))
-
-        for i, course in enumerate(courses):
-            sections = get_course_sections(driver, courses, i, term)
-            if not sections:
-                logging.warning(f"No section data found for {course['display']}")
+        for course in courses:
+            try:
+                sections = fetch_sections(course['code'], term)
+            except LookupError as e:
+                logging.warning(f"{course['display']}: {e}")
                 continue
+            if course['crns']:
+                missing = [c for c in course['crns'] if c not in sections]
+                if missing:
+                    logging.warning(f"CRN(s) {missing} not found for {course['display']}")
+                sections = {crn: info for crn, info in sections.items() if crn in course['crns']}
 
             hits = []
             for crn, info in sections.items():
                 availability = is_available(info)
-                status = availability or "Full (waitlist: {})".format(info.get("waitlist") or "n/a")
-                logging.info(f"{course['display']} {info['type']} CRN {crn}: {status}")
+                logging.info(f"{course['display']} {info['type']} CRN {crn}: {availability or 'Full'}")
                 if availability:
                     hits.append((crn, info["type"], availability))
 
@@ -478,8 +343,6 @@ def perform_web_task(config_path, dry_run=False, fail_on_available=False, notify
         logging.error(f"An error occurred during web task: {e}")
         logging.debug("Traceback:\n%s", traceback.format_exc())
         return 2
-    finally:
-        driver.quit()
 
 
 def send_test_email(config_path, notify_flag=None):
