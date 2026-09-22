@@ -2,7 +2,7 @@
 
 Watches McGill's Visual Schedule Builder for open seats and alerts you when a
 section you want frees up, by email, phone push notification, or both. Runs
-for free on GitHub Actions every 10 minutes.
+for free on GitHub Actions every hour.
 
 > Fork of [McGill Seat Alert](https://github.com/hanzili/mcgill-seat-alert) by
 > [hanzili](https://github.com/hanzili), updated for the current VSB site, with

@@ -2,7 +2,7 @@ name: Check Course Availability
 
 on:
   schedule:
-    - cron: '*/10 * * * *'  # Runs every ten minutes
+    - cron: '17 * * * *'  # Runs hourly at :17 (off the busy top of the hour)
   workflow_dispatch:  # Allows manual triggering
     inputs:
       test_email:
