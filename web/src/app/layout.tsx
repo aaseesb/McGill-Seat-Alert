@@ -29,7 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <span>Not affiliated with McGill University.</span>
             <span>
               <Link href="/privacy">Privacy</Link> ·{" "}
-              <a href="https://github.com/hanzili/mcgill-seat-alert">Based on hanzili/mcgill-seat-alert</a>
+              <a href="https://github.com/aaseesb/McGill-Seat-Alert">Source</a>
             </span>
           </div>
         </footer>
