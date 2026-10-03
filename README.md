@@ -108,7 +108,6 @@ python -m venv .venv && .venv/bin/pip install -r requirements.txt
 Export the same values as environment variables in your shell:
 `RESEND_API_KEY` and `ALERT_EMAIL` for email, `NTFY_TOPIC` for push.
 `--notify email|push|both` overrides `ALERT_METHOD` and `config.json` for one run.
-You'll also need Chrome installed.
 
 ## How it works
 
