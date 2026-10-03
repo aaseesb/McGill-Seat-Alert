@@ -121,6 +121,24 @@ and waitlist count shows up in the legend.
 To check more or less often, edit the cron line in
 `.github/workflows/course_check.yml`.
 
+### Running on time (external trigger)
+
+GitHub's built-in `schedule` is best-effort and often runs hours late. For a
+reliable hourly check, have a free scheduler like
+[cron-job.org](https://cron-job.org) start the workflow through the API. The
+GitHub schedule stays on as a backup.
+
+1. Create a fine-grained token at GitHub → Settings → Developer settings →
+   Personal access tokens. Limit it to this repository only, with
+   **Actions: Read and write** and nothing else.
+2. In cron-job.org, create a job with:
+   - **URL:** `https://api.github.com/repos/<you>/mcgill-seat-alert/actions/workflows/course_check.yml/dispatches`
+   - **Method:** POST
+   - **Body:** `{"ref":"main"}`
+   - **Headers:** `Authorization: Bearer <token>`,
+     `Accept: application/vnd.github+json`, `Content-Type: application/json`
+   - **Schedule:** every hour (a success returns HTTP 204)
+
 ## Disclaimer
 
 For educational purposes only. You're responsible for how you use it,

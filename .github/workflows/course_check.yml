@@ -19,6 +19,12 @@ on:
           - both
         default: default
 
+# An external trigger and GitHub's own schedule can fire close together;
+# only one check runs at a time and a duplicate waits instead of double-alerting.
+concurrency:
+  group: course-check
+  cancel-in-progress: false
+
 jobs:
   check-courses:
     runs-on: ubuntu-latest
