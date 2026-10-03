@@ -1,6 +1,6 @@
 # McGill Seat Alert
 
-Watches McGill's Visual Schedule Builder for open seats and alerts you when a
+Watches McGill's Visual Schedule Builder (through its data API, no browser needed) for open seats and alerts you when a
 section you want frees up, by email, phone push notification, or both. Runs
 for free on GitHub Actions every hour.
 
