@@ -72,8 +72,8 @@ for free on GitHub Actions every hour.
 
 5. **Enable the workflow** in the Actions tab if GitHub hasn't already.
 
-As a backup, if a seat opens but the alert can't be sent (bad key, service
-down, secrets missing), the run fails and GitHub emails you about it instead.
+If a seat opens but the alert can't be sent (bad key, service down, secrets
+missing), the run still succeeds; check the step log and job summary.
 
 ## Testing it
 

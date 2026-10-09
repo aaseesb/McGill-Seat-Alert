@@ -44,8 +44,6 @@ jobs:
 
       - name: Run course check script
         env:
-          # Optional: without these the step fails on purpose when a seat opens,
-          # and GitHub emails you about the failed run instead.
           # ALERT_EMAIL can hold several addresses separated by commas.
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
@@ -64,5 +62,5 @@ jobs:
           if [ "${{ inputs.test_email }}" = "true" ]; then
             python register.py --test-email "${args[@]}"
           else
-            python register.py --fail-on-available "${args[@]}"
+            python register.py "${args[@]}"
           fi
