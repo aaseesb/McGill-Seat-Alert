@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { alertHtml, alertSubject, alertText, sendEmails, sendPush, type Email, type Hit } from "./notify";
+import { alertSubject, alertText, sendPush, type Hit } from "./notify";
 import { availability, CourseNotFound, fetchCourse, type Section } from "./vsb";
 
 type Sub = {
@@ -7,7 +7,6 @@ type Sub = {
   term: string;
   course_code: string;
   crns: string[];
-  notify: "email" | "push" | "both";
   last_alerted_at: string | null;
   profiles: { email: string; ntfy_topic: string; unsubscribe_token: string };
 };
@@ -22,7 +21,7 @@ export async function runCheck(db: SupabaseClient) {
 
   const { data: subs, error } = await db
     .from("subscriptions")
-    .select("id, term, course_code, crns, notify, last_alerted_at, profiles!inner(email, ntfy_topic, unsubscribe_token)")
+    .select("id, term, course_code, crns, last_alerted_at, profiles!inner(email, ntfy_topic, unsubscribe_token)")
     .eq("active", true)
     .returns<Sub[]>();
   if (error) throw error;
@@ -56,7 +55,7 @@ export async function runCheck(db: SupabaseClient) {
   }
 
   // Group hits by person so someone watching three courses gets one message
-  const perUser = new Map<string, { profile: Sub["profiles"]; email: boolean; push: boolean; hits: Hit[]; subIds: string[] }>();
+  const perUser = new Map<string, { profile: Sub["profiles"]; hits: Hit[]; subIds: string[] }>();
   for (const s of subs) {
     const sections = fetched.get(key(s.term, s.course_code));
     if (!sections) continue;
@@ -72,38 +71,21 @@ export async function runCheck(db: SupabaseClient) {
     }
     if (!hits.length) continue;
 
-    const entry = perUser.get(s.profiles.email) ?? { profile: s.profiles, email: false, push: false, hits: [], subIds: [] };
-    entry.email ||= s.notify !== "push";
-    entry.push ||= s.notify !== "email";
+    const entry = perUser.get(s.profiles.email) ?? { profile: s.profiles, hits: [], subIds: [] };
     entry.hits.push(...hits);
     entry.subIds.push(s.id);
     perUser.set(s.profiles.email, entry);
   }
 
-  const emails: Email[] = [];
   const alerted: string[] = [];
   for (const u of perUser.values()) {
     const subject = alertSubject(u.hits);
-    if (u.email)
-      emails.push({
-        to: u.profile.email, subject,
-        html: alertHtml(u.hits, u.profile.unsubscribe_token),
-        text: alertText(u.hits, u.profile.unsubscribe_token),
-        unsubscribeToken: u.profile.unsubscribe_token,
-      });
-    if (u.push) {
-      try {
-        await sendPush(u.profile.ntfy_topic, subject, alertText(u.hits));
-      } catch (e) {
-        errors.push(`push: ${e instanceof Error ? e.message : e}`);
-      }
+    try {
+      await sendPush(u.profile.ntfy_topic, subject, alertText(u.hits));
+    } catch (e) {
+      errors.push(`push: ${e instanceof Error ? e.message : e}`);
     }
     alerted.push(...u.subIds);
-  }
-  try {
-    await sendEmails(emails);
-  } catch (e) {
-    errors.push(`email: ${e instanceof Error ? e.message : e}`);
   }
 
   const now = new Date().toISOString();

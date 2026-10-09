@@ -5,8 +5,6 @@ import { termLabel } from "@/lib/terms";
 import type { CourseData } from "@/lib/vsb";
 import { addSubscription, type ActionState } from "./actions";
 
-const NOTIFY = [["both", "Email + phone"], ["email", "Email"], ["push", "Phone"]] as const;
-
 export default function AddCourse({ terms }: { terms: string[] }) {
   const [code, setCode] = useState("");
   const [term, setTerm] = useState(terms[1] ?? terms[0]);
@@ -72,14 +70,6 @@ export default function AddCourse({ terms }: { terms: string[] }) {
                       : <span className="badge badge-full">Full{s.waitlist > 0 ? ` · waitlist ${s.waitlist}` : ""}</span>}
                   </span>
                 </label>
-              ))}
-            </div>
-          </div>
-          <div>
-            <label>Alert me by</label>
-            <div className="radio-row">
-              {NOTIFY.map(([v, l]) => (
-                <label key={v} className="check"><input type="radio" name="notify" value={v} defaultChecked={v === "both"} />{l}</label>
               ))}
             </div>
           </div>

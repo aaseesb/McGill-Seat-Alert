@@ -19,8 +19,8 @@ export default async function Home() {
     <>
       <h1>Get alerted when a seat opens in a full McGill course.</h1>
       <p className="lead">
-        Pick a course and the sections you want. When one opens up, you get an email, a phone
-        notification, or both. No GitHub, no API keys, no McGill password.
+        Pick a course and the sections you want. When one opens up, you get a phone
+        notification. No GitHub, no API keys, no McGill password.
       </p>
       <div className="row" style={{ marginTop: 24 }}>
         <Link href="/login" className="btn">Start watching a course</Link>

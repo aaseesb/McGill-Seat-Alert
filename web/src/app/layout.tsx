@@ -8,7 +8,7 @@ const mono = Geist_Mono({ variable: "--font-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Seat Alert for McGill",
-  description: "Get an email or phone notification when a seat opens in a full McGill course section.",
+  description: "Get a phone notification when a seat opens in a full McGill course section.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

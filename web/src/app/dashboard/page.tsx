@@ -2,7 +2,7 @@ import QRCode from "qrcode";
 import { redirect } from "next/navigation";
 import { createUserClient } from "@/lib/supabase/server";
 import { displayCode, termLabel, upcomingTerms } from "@/lib/vsb";
-import { deleteAccount, removeSubscription, setActive, setNotify } from "./actions";
+import { deleteAccount, removeSubscription, setActive } from "./actions";
 import AddCourse from "./AddCourse";
 import DeleteAccount from "./DeleteAccount";
 import TestAlert from "./TestAlert";
@@ -11,11 +11,9 @@ export const metadata = { title: "My alerts · Seat Alert" };
 
 type Sub = {
   id: string; term: string; course_code: string; crns: string[];
-  notify: "email" | "push" | "both"; active: boolean; last_alerted_at: string | null;
+  active: boolean; last_alerted_at: string | null;
 };
 type State = { term: string; course_code: string; crn: string; section_type: string; seats: number; available: boolean; checked_at: string };
-
-const NOTIFY_LABEL = { both: "Email + phone", email: "Email", push: "Phone" } as const;
 
 export default async function Dashboard() {
   const supabase = await createUserClient();
@@ -63,7 +61,7 @@ export default async function Dashboard() {
                   {!s.active && <> <span className="badge badge-muted">Paused</span></>}
                 </h3>
                 <p className="muted small" style={{ margin: 0 }}>
-                  {s.crns.length ? `CRN ${s.crns.join(", ")}` : "Any section"} · {NOTIFY_LABEL[s.notify]}
+                  {s.crns.length ? `CRN ${s.crns.join(", ")}` : "Any section"}
                   {checked && ` · checked ${new Date(checked).toLocaleString("en-CA", { timeZone: "America/Montreal", dateStyle: "short", timeStyle: "short" })}`}
                 </p>
                 <div className="sections">
@@ -76,11 +74,6 @@ export default async function Dashboard() {
                 </div>
               </div>
               <div className="sub-actions">
-                <form action={setNotify.bind(null, s.id, s.notify === "both" ? "email" : s.notify === "email" ? "push" : "both")}>
-                  <button className="btn btn-ghost btn-small" title="Change how you're alerted">
-                    Switch to {NOTIFY_LABEL[s.notify === "both" ? "email" : s.notify === "email" ? "push" : "both"]}
-                  </button>
-                </form>
                 <form action={setActive.bind(null, s.id, !s.active)}>
                   <button className="btn btn-ghost btn-small">{s.active ? "Pause" : "Resume"}</button>
                 </form>
@@ -109,8 +102,7 @@ export default async function Dashboard() {
               <code className="topic">{profile.ntfy_topic}</code>
               <p className="muted small" style={{ margin: 0 }}>Keep this name private: anyone who has it can read your alerts.</p>
               <div className="row">
-                <TestAlert channel="push" label="Send test to phone" />
-                <TestAlert channel="email" label="Send test email" />
+                <TestAlert label="Send test to phone" />
               </div>
             </div>
           </div>
