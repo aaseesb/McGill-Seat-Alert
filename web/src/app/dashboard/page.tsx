@@ -1,5 +1,6 @@
 import QRCode from "qrcode";
 import { redirect } from "next/navigation";
+import { ensureProfile } from "@/lib/profile";
 import { createUserClient } from "@/lib/supabase/server";
 import { displayCode, termLabel, upcomingTerms } from "@/lib/vsb";
 import { deleteAccount, removeSubscription, setActive } from "./actions";
@@ -20,6 +21,7 @@ export default async function Dashboard() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
+  await ensureProfile(user.id, user.email);
   const [{ data: profile }, { data: subs }] = await Promise.all([
     supabase.from("profiles").select("email, ntfy_topic").eq("id", user.id).single(),
     supabase.from("subscriptions").select("*").order("created_at").returns<Sub[]>(),

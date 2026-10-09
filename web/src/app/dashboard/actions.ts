@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { alertText, sendPush, type Hit } from "@/lib/notify";
+import { ensureProfile } from "@/lib/profile";
 import { createServiceClient, createUserClient } from "@/lib/supabase/server";
 import { normalizeCode, upcomingTerms } from "@/lib/vsb";
 
@@ -17,6 +18,7 @@ async function requireUser() {
 
 export async function addSubscription(_: ActionState, form: FormData): Promise<ActionState> {
   const { supabase, user } = await requireUser();
+  await ensureProfile(user.id, user.email);
   const code = normalizeCode(String(form.get("code") ?? ""));
   const term = String(form.get("term") ?? "");
   if (!code) return { error: "Use a course code like COMP 250." };
@@ -27,7 +29,10 @@ export async function addSubscription(_: ActionState, form: FormData): Promise<A
     { user_id: user.id, term, course_code: code, crns, notify: "push", active: true, last_alerted_at: null },
     { onConflict: "user_id,term,course_code" },
   );
-  if (error) return { error: error.message.includes("at most") ? error.message : "Couldn't save that alert." };
+  if (error) {
+    console.error("addSubscription failed:", error);
+    return { error: error.message.includes("at most") ? error.message : `Couldn't save that alert (${error.message}).` };
+  }
   revalidatePath("/dashboard");
   return { ok: `Watching ${code.replace("-", " ")}.` };
 }
